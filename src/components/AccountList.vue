@@ -20,7 +20,7 @@
         管理员登录
       </router-link>
     </div>
-    
+
     <div v-if="notifications.length" class="notifications">
       <div v-for="notification in notifications" :key="notification.id"
         :class="['notification-item', notification.type]">
@@ -61,10 +61,8 @@
             <span class="label">用户名:</span>
             <div class="value-container">
               <span class="value">{{ account.username }}</span>
-              <button class="copy-btn" 
-                @click="copyToClipboard(account.username)"
-                @touchstart="handleLongPress.start(account.username)"
-                @touchend="handleLongPress.end()"
+              <button class="copy-btn" @click="copyToClipboard(account.username)"
+                @touchstart="handleLongPress.start(account.username)" @touchend="handleLongPress.end()"
                 :data-tooltip="'复制用户名'">
                 <i class="fas fa-copy"></i>
               </button>
@@ -78,10 +76,8 @@
                 :data-tooltip="showPassword[account.id] ? '隐藏密码' : '显示密码'">
                 <i :class="showPassword[account.id] ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
               </button>
-              <button class="copy-btn"
-                @click="copyToClipboard(account.password)"
-                @touchstart="handleLongPress.start(account.password)"
-                @touchend="handleLongPress.end()"
+              <button class="copy-btn" @click="copyToClipboard(account.password)"
+                @touchstart="handleLongPress.start(account.password)" @touchend="handleLongPress.end()"
                 :data-tooltip="'复制密码'">
                 <i class="fas fa-copy"></i>
               </button>
@@ -122,10 +118,8 @@
             <span class="label">验证码:</span>
             <div class="value-container">
               <span class="value">{{ account.code }}</span>
-              <button class="copy-btn" 
-                @click="copyToClipboard(account.code)"
-                @touchstart="handleLongPress.start(account.code)"
-                @touchend="handleLongPress.end()"
+              <button class="copy-btn" @click="copyToClipboard(account.code)"
+                @touchstart="handleLongPress.start(account.code)" @touchend="handleLongPress.end()"
                 :data-tooltip="'复制验证码'">
                 <i class="fas fa-copy"></i>
               </button>
@@ -135,19 +129,19 @@
             <span class="label">Steam令牌:</span>
             <div class="value-container">
               <span class="value steam-token">
-                <span v-if="!steamTokens[account.id]">加载中...</span>
-                <span v-else>{{ steamTokens[account.id] }}</span>
+                {{ steamTokens[account.id] || '加载中...' }}
                 <span class="token-timer">{{ tokenRemainingTime }}s</span>
               </span>
               <button class="copy-btn"
-                @click="copyToClipboard(getSteamToken(account.shared_secret))"
-                @touchstart="handleLongPress.start(getSteamToken(account.shared_secret))"
+                @click="copyToClipboard(steamTokens[account.id] || '')"
+                @touchstart="handleLongPress.start(steamTokens[account.id] || '')"
                 @touchend="handleLongPress.end()"
                 :data-tooltip="'复制令牌'">
                 <i class="fas fa-copy"></i>
               </button>
             </div>
           </div>
+
         </div>
       </div>
     </div>
@@ -178,7 +172,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { getAccounts, getNotifications, getAccountsByPlatform, getPlatforms, getVisitStats } from '../api'
-import { generateSteamToken } from '../api'
+import { SteamGuard, getTokenRemainingTime } from '../utils/steamToken.js'
 import { ElMessage } from 'element-plus'
 import 'element-plus/es/components/message/style/css'
 
@@ -193,9 +187,10 @@ const stats = ref({
   totalVisitors: 0
 })
 
-// Steam令牌刷新定时器
+// Steam令牌相关状态
 const tokenRefreshTimer = ref(null)
 const tokenRemainingTime = ref(30)
+const steamTokens = ref({})
 
 const formatDate = (dateString) => {
   if (!dateString) return '';
@@ -331,15 +326,18 @@ const getNotificationIcon = (type) => {
 // 获取Steam令牌
 const getSteamToken = async (sharedSecret) => {
   try {
-    const token = await generateSteamToken(sharedSecret)
-    if (!token) {
+    console.log('正在生成令牌，shared_secret:', sharedSecret)
+    const steamGuard = new SteamGuard(sharedSecret)
+    const token = await steamGuard.generateCode() || '获取失败'
+    console.log('生成的令牌:', token)
+    if (token === '获取失败') {
       ElMessage({
         message: 'Steam令牌生成失败',
         type: 'warning',
         duration: 3000
       })
     }
-    return token || '获取失败'
+    return token
   } catch (error) {
     console.error('获取Steam令牌失败:', error)
     return '获取失败'
@@ -348,11 +346,22 @@ const getSteamToken = async (sharedSecret) => {
 
 // 更新令牌
 const updateTokens = async () => {
+  console.log('开始更新所有令牌')
   for (const account of accounts.value) {
     if (account.platform === 'Steam' && account.shared_secret) {
-      steamTokens.value[account.id] = await getSteamToken(account.shared_secret)
+      console.log(`更新账号 ${account.id} 的令牌, shared_secret:`, account.shared_secret)
+      try {
+        const steamGuard = new SteamGuard(account.shared_secret)
+        const token = await steamGuard.generateCode() || '获取失败'
+        console.log(`账号 ${account.id} 令牌更新成功:`, token)
+        steamTokens.value[account.id] = token
+      } catch (error) {
+        console.error(`账号 ${account.id} 令牌更新失败:`, error)
+        steamTokens.value[account.id] = '获取失败'
+      }
     }
   }
+  console.log('当前所有令牌:', steamTokens.value)
 }
 
 // 更新令牌剩余时间
@@ -360,17 +369,15 @@ const updateTokenTime = () => {
   tokenRemainingTime.value = getTokenRemainingTime()
 }
 
-// 添加状态存储
-const steamTokens = ref({})
-
 // 启动令牌刷新定时器
 const startTokenRefresh = () => {
+  console.log('启动令牌刷新定时器') // 添加调试日志
   updateTokenTime()
-  updateTokens()
+  updateTokens() // 立即更新一次
   tokenRefreshTimer.value = setInterval(() => {
     updateTokenTime()
     if (tokenRemainingTime.value === 30) {
-      updateTokens()
+      updateTokens() // 每30秒更新一次
     }
   }, 1000)
 }
