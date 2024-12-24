@@ -4,6 +4,16 @@
       <div class="header-content">
         <h1 class="title">账号共享平台</h1>
         <p class="subtitle">便捷 · 安全 · 高效</p>
+        <div class="visit-stats">
+          <div class="stat-item">
+            <i class="fas fa-chart-line"></i>
+            <span>总访问量: {{ stats.totalVisits }}</span>
+          </div>
+          <div class="stat-item">
+            <i class="fas fa-users"></i>
+            <span>总访客数: {{ stats.totalVisitors }}</span>
+          </div>
+        </div>
       </div>
       <router-link to="/login" class="admin-btn">
         <i class="fas fa-user-shield"></i>
@@ -21,10 +31,9 @@
         <div class="notification-content">{{ notification.content }}</div>
       </div>
     </div>
-
-
-
     <div class="search-box">
+
+
       <div class="search-wrapper">
         <i class="fas fa-search search-icon"></i>
         <input v-model="searchQuery" placeholder="搜索平台..." class="search-input" />
@@ -130,7 +139,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
-import { getAccounts, getNotifications, getAccountsByPlatform, getPlatforms } from '../api'
+import { getAccounts, getNotifications, getAccountsByPlatform, getPlatforms, getVisitStats } from '../api'
 
 const accounts = ref([])
 const notifications = ref([])
@@ -138,6 +147,10 @@ const platforms = ref([])
 const showPassword = reactive({})
 const searchQuery = ref('')
 const selectedPlatform = ref('')
+const stats = ref({
+  totalVisits: 0,
+  totalVisitors: 0
+})
 
 const formatDate = (dateString) => {
   if (!dateString) return '';
@@ -220,18 +233,22 @@ const getNotificationIcon = (type) => {
 
 onMounted(async () => {
   try {
-    const [accountsRes, notificationsRes, platformsRes] = await Promise.all([
+    const [accountsRes, notificationsRes, platformsRes, statsRes] = await Promise.all([
       getAccounts(),
       getNotifications(),
-      getPlatforms()
-    ]);
-    accounts.value = accountsRes.data;
-    notifications.value = notificationsRes.data;
-    platforms.value = platformsRes.data;
+      getPlatforms(),
+      getVisitStats()
+    ])
+    accounts.value = accountsRes.data
+    notifications.value = notificationsRes.data
+    platforms.value = platformsRes.data
+    console.log('获取到的统计数据:', statsRes.data)
+    stats.value = statsRes.data
+    console.log('更新后的统计数据:', stats.value)
   } catch (error) {
-    console.error('获取数据失败:', error);
+    console.error('获取数据失败:', error)
   }
-});
+})
 </script>
 
 <style scoped>
@@ -678,6 +695,35 @@ onMounted(async () => {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+.visit-stats {
+  display: flex;
+  gap: 20px;
+  margin-top: 15px;
+}
+
+.stat-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.2);
+  padding: 8px 15px;
+  border-radius: 20px;
+  font-size: 14px;
+  color: white;
+}
+
+.stat-item i {
+  font-size: 16px;
+}
+
+@media (max-width: 768px) {
+  .visit-stats {
+    flex-direction: column;
+    gap: 10px;
+    align-items: center;
   }
 }
 </style> 

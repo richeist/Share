@@ -1,0 +1,7 @@
+{
+  "totalVisits": 4,
+  "totalVisitors": 1,
+  "allVisitors": [
+    "::1"
+  ]
+}

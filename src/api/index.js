@@ -146,4 +146,15 @@ export const deleteNotification = async (id) => {
 export const getAccountsByTag = (tag) => api.get(`/accounts/tags/${tag}`)
 export const getAccountsByPlatform = (platform) => api.get(`/accounts/platform/${platform}`)
 export const getPlatforms = () => api.get('/platforms')
-export const getTags = () => api.get('/tags') 
+export const getTags = () => api.get('/tags')
+
+export const getVisitStats = async () => {
+  try {
+    const response = await api.get('/stats')
+    console.log('访问统计API响应:', response.data)
+    return response
+  } catch (error) {
+    console.error('获取访问统计失败:', error)
+    throw error
+  }
+} 
