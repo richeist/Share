@@ -70,6 +70,25 @@
               </button>
             </div>
           </div>
+          <div class="account-item">
+            <span class="label">状态:</span>
+            <span :class="['value', 'status-badge', {
+              'status-normal': account.status === '正常',
+              'status-warning': account.status === '待检测',
+              'status-error': !account.status || account.status === '异常'
+            }]" :style="{
+              color: account.status === '正常' ? '#4CAF50' : 
+                     account.status === '异常' ? '#f44336' :
+                     account.status === '待检测' ? '#ff9800' : '#f44336'
+            }">
+              <i :class="{
+                'fas fa-check-circle text-green-500': account.status === '正常',
+                'fas fa-question-circle text-yellow-500': account.status === '待检测', 
+                'fas fa-exclamation-circle text-red-500': !account.status || account.status === '异常'
+              }"></i>
+              {{ account.status || '异常' }}
+            </span>
+          </div>
           <div class="account-item time-item" v-if="account.add_time">
             <i class="far fa-clock"></i>
             <span class="time-text">{{ formatDate(account.add_time) }}</span>
