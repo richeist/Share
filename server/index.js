@@ -5,6 +5,8 @@ import config from '../config/index.js'
 import fs from 'fs'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
+import { startScheduler, scheduledTasks } from './tasks/scheduler.js'
+import { generateSteamGuardCode } from './utils/steamToken.js'
 
 const app = express()
 
@@ -41,7 +43,13 @@ async function testConnection() {
 app.get('/api/accounts', async (req, res) => {
   try {
     console.log('请求获取账号列表')
-    const [rows] = await pool.query('SELECT * FROM accounts ORDER BY id DESC')
+    const [rows] = await pool.query(`
+      SELECT id, username, password, platform, status, tags, code,
+             shared_secret, identity_secret, steamid,
+             DATE_FORMAT(add_time, '%Y-%m-%d %H:%i:%s') as add_time 
+      FROM accounts 
+      ORDER BY id DESC
+    `)
     console.log('获取到账号数量:', rows.length)
     res.json(rows)
   } catch (error) {
@@ -55,19 +63,30 @@ app.get('/api/accounts', async (req, res) => {
 
 // 添加账号
 app.post('/api/accounts', async (req, res) => {
-  const { username, password, platform, tags, add_time } = req.body
+  const { username, password, platform, status = '正常', tags, code, shared_secret, identity_secret, steamid } = req.body
   try {
+    // 检查必填字段
+    if (!username || !password || !platform) {
+      return res.status(400).json({ error: '用户名、密码和平台为必填项' })
+    }
+
     const [result] = await pool.query(
-      'INSERT INTO accounts (username, password, platform, tags, add_time) VALUES (?, ?, ?, ?, ?)',
-      [username, password, platform, tags, add_time || new Date()]
+      `INSERT INTO accounts (username, password, platform, status, tags, code, 
+                           shared_secret, identity_secret, steamid, add_time) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [username, password, platform, status, tags, code, shared_secret, identity_secret, steamid]
     )
     
-    const [newAccount] = await pool.query(
-      'SELECT * FROM accounts WHERE id = ?',
+    const [account] = await pool.query(
+      `SELECT id, username, password, platform, status, tags, code,
+              shared_secret, identity_secret, steamid,
+              DATE_FORMAT(add_time, '%Y-%m-%d %H:%i:%s') as add_time 
+       FROM accounts WHERE id = ?`,
       [result.insertId]
     )
     
-    res.json(newAccount[0])
+    console.log('账号添加成功:', account[0])
+    res.json(account[0])
   } catch (error) {
     console.error('添加账号失败:', error)
     res.status(500).json({ 
@@ -80,9 +99,9 @@ app.post('/api/accounts', async (req, res) => {
 // 更新账号
 app.put('/api/accounts/:id', async (req, res) => {
   const { id } = req.params
-  const { username, password, platform } = req.body
+  const { username, password, platform, status, tags, code, shared_secret, identity_secret, steamid } = req.body
   try {
-    // 先检查账号是否存在
+    // 检查账号是否存在
     const [existing] = await pool.query('SELECT * FROM accounts WHERE id = ?', [id])
     if (existing.length === 0) {
       return res.status(404).json({ error: '账号不存在' })
@@ -90,14 +109,25 @@ app.put('/api/accounts/:id', async (req, res) => {
 
     // 更新账号信息
     await pool.query(
-      'UPDATE accounts SET username = ?, password = ?, platform = ?, add_time = NOW() WHERE id = ?',
-      [username, password, platform, id]
+      `UPDATE accounts 
+       SET username = ?, password = ?, platform = ?, status = ?, tags = ?, 
+           code = ?, shared_secret = ?, identity_secret = ?, steamid = ?, 
+           add_time = NOW() 
+       WHERE id = ?`,
+      [username, password, platform, status, tags, code, shared_secret, identity_secret, steamid, id]
     )
     
     // 获取更新后的账号信息
-    const [updatedAccount] = await pool.query('SELECT * FROM accounts WHERE id = ?', [id])
+    const [account] = await pool.query(
+      `SELECT id, username, password, platform, status, tags, code, 
+              shared_secret, identity_secret, steamid,
+              DATE_FORMAT(add_time, '%Y-%m-%d %H:%i:%s') as add_time 
+       FROM accounts WHERE id = ?`,
+      [id]
+    )
     
-    res.json(updatedAccount[0])
+    console.log('账号更新成功:', account[0])
+    res.json(account[0])
   } catch (error) {
     console.error('更新账号失败:', error)
     res.status(500).json({ 
@@ -111,11 +141,50 @@ app.put('/api/accounts/:id', async (req, res) => {
 app.delete('/api/accounts/:id', async (req, res) => {
   const { id } = req.params
   try {
+    // 检查账号是否存在
+    const [existing] = await pool.query('SELECT * FROM accounts WHERE id = ?', [id])
+    if (existing.length === 0) {
+      return res.status(404).json({ error: '账号不存在' })
+    }
+
+    // 删除账号
     await pool.query('DELETE FROM accounts WHERE id = ?', [id])
-    res.json({ message: '删除成功' })
+    console.log('账号删除成功:', { id, account: existing[0] })
+    res.json({ 
+      message: '删除成功',
+      deletedAccount: existing[0]
+    })
   } catch (error) {
     console.error('删除账号失败:', error)
-    res.status(500).json({ error: error.message })
+    res.status(500).json({ 
+      error: error.message,
+      details: '删除账号失败'
+    })
+  }
+})
+
+// 添加批量更新状态的路由
+app.put('/api/accounts/status/batch', async (req, res) => {
+  const { ids, status } = req.body
+  try {
+    if (!Array.isArray(ids) || !status) {
+      return res.status(400).json({ error: '参数格式错误' })
+    }
+
+    await pool.query(
+      'UPDATE accounts SET status = ? WHERE id IN (?)',
+      [status, ids]
+    )
+
+    console.log('批量更新状态成功:', { ids, status })
+    res.json({ 
+      message: '状态更新成功',
+      updatedIds: ids,
+      newStatus: status
+    })
+  } catch (error) {
+    console.error('批量更新状态失败:', error)
+    res.status(500).json({ error: '批量更新状态失败' })
   }
 })
 
@@ -407,6 +476,159 @@ app.get('/api/stats', (req, res) => {
   } catch (error) {
     console.error('处理访问统计失败:', error)
     res.status(500).json({ error: '获取访问统计失败' })
+  }
+})
+
+// 添加批量删除的路由
+app.delete('/api/accounts/batch', async (req, res) => {
+  const { ids } = req.body
+  try {
+    if (!Array.isArray(ids)) {
+      return res.status(400).json({ error: '参数格式错误' })
+    }
+
+    // 先检查账号是否都存在
+    const [existing] = await pool.query(
+      'SELECT * FROM accounts WHERE id IN (?)',
+      [ids]
+    )
+
+    if (existing.length !== ids.length) {
+      return res.status(404).json({ error: '部分账号不存在' })
+    }
+
+    // 执行批量删除
+    await pool.query('DELETE FROM accounts WHERE id IN (?)', [ids])
+    
+    console.log('批量删除成功:', { deletedIds: ids })
+    res.json({ 
+      message: '删除成功',
+      deletedIds: ids,
+      deletedAccounts: existing
+    })
+  } catch (error) {
+    console.error('批量删除失败:', error)
+    res.status(500).json({ error: '批量删除失败' })
+  }
+})
+
+// 在启动服务器之前启动定时任务
+startScheduler()
+
+// 添加手动触发任务的路由
+app.post('/api/tasks/:taskName', async (req, res) => {
+  const { taskName } = req.params
+  
+  if (!scheduledTasks[taskName]) {
+    return res.status(404).json({ error: '任务不存在' })
+  }
+  
+  try {
+    console.log(`手动触发任务: ${taskName}`)
+    await scheduledTasks[taskName]()
+    res.json({ message: '任务执行成功' })
+  } catch (error) {
+    console.error(`执行任务失败 ${taskName}:`, error)
+    res.status(500).json({ error: '任务执行失败' })
+  }
+})
+
+// 获取所有可用任务列表
+app.get('/api/tasks', (req, res) => {
+  res.json({
+    tasks: Object.keys(scheduledTasks).map(name => ({
+      name,
+      description: getTaskDescription(name)
+    }))
+  })
+})
+
+// 任务描述映射
+function getTaskDescription(taskName) {
+  const descriptions = {
+    checkAccountStatus: '检查所有账号状态',
+    cleanNotifications: '清理过期通知',
+    backupDatabase: '备份数据库'
+  }
+  return descriptions[taskName] || '未知任务'
+}
+
+// 添加批量导入账号的路由
+app.post('/api/accounts/batch', async (req, res) => {
+  const accounts = req.body
+  try {
+    if (!Array.isArray(accounts) || !accounts.length) {
+      return res.status(400).json({ error: '无效的账号数据' })
+    }
+
+    // 验证必填字段
+    for (const account of accounts) {
+      if (!account.username || !account.password) {
+        return res.status(400).json({ 
+          error: '账号数据格式错误',
+          details: '用户名和密码为必填项'
+        })
+      }
+    }
+
+    // 批量插入账号
+    const values = accounts.map(acc => [
+      acc.username,
+      acc.password,
+      acc.platform || '',
+      acc.status || '正常',
+      acc.tags || '',
+      new Date()
+    ])
+
+    const [result] = await pool.query(
+      `INSERT INTO accounts (username, password, platform, status, tags, add_time) 
+       VALUES ?`,
+      [values]
+    )
+
+    // 获取插入的账号
+    const [insertedAccounts] = await pool.query(
+      `SELECT id, username, password, platform, status, tags, 
+              DATE_FORMAT(add_time, '%Y-%m-%d %H:%i:%s') as add_time 
+       FROM accounts 
+       WHERE id >= ? 
+       ORDER BY id ASC 
+       LIMIT ?`,
+      [result.insertId, result.affectedRows]
+    )
+
+    console.log(`成功导入 ${result.affectedRows} 个账号`)
+    res.json(insertedAccounts)
+  } catch (error) {
+    console.error('批量导入账号失败:', error)
+    res.status(500).json({ 
+      error: error.message,
+      details: '批量导入账号失败'
+    })
+  }
+})
+
+// 添加Steam令牌生成接口
+app.post('/api/steam/token', async (req, res) => {
+  const { shared_secret } = req.body
+  try {
+    if (!shared_secret) {
+      return res.status(400).json({ error: 'shared_secret是必需的' })
+    }
+
+    const token = generateSteamGuardCode(shared_secret)
+    if (!token) {
+      throw new Error('令牌生成失败')
+    }
+
+    res.json({ token })
+  } catch (error) {
+    console.error('生成Steam令牌失败:', error)
+    res.status(500).json({ 
+      error: error.message,
+      details: '生成Steam令牌失败'
+    })
   }
 })
 

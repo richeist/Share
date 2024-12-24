@@ -8,7 +8,8 @@ export default defineConfig(({ command, mode }) => {
   return {
     plugins: [vue()],
     server: {
-      host: config.client.host,
+      // host: config.client.host,
+          host: '0.0.0.0',
       port: config.client.port,
       proxy: {
         '/api': {

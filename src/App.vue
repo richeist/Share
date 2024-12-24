@@ -9,31 +9,26 @@
 
 <style>
 :root {
-  /* 主题颜色 */
-  --primary-color: #3498db;
-  --primary-dark: #2980b9;
-  --success-color: #2ecc71;
-  --success-dark: #27ae60;
-  --danger-color: #e74c3c;
-  --danger-dark: #c0392b;
-  --warning-color: #f1c40f;
-  --info-color: #95a5a6;
-  --info-dark: #7f8c8d;
-  
-  /* 文字颜色 */
+  --primary-color: #1976D2;
+  --primary-dark: #1565C0;
+  --primary-rgb: 25, 118, 210;
   --text-primary: #2c3e50;
   --text-secondary: #666666;
-  --text-light: #95a5a6;
+  --border-color: #e0e0e0;
+  --bg-light: #f5f5f5;
+  --bg-primary: #f8f9fa;
+  --box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+  --border-radius: 12px;
   
-  /* 背景颜色 */
-  --bg-primary: #f5f6fa;
-  --bg-secondary: #ffffff;
-  --bg-light: #f8f9fa;
-  
-  /* 边框和阴影 */
-  --border-radius: 8px;
-  --border-color: #eee;
-  --box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+  /* 添加新的颜色变量 */
+  --success-color: #4CAF50;
+  --success-dark: #43A047;
+  --warning-color: #FF9800;
+  --warning-dark: #F57C00;
+  --danger-color: #F44336;
+  --danger-dark: #D32F2F;
+  --info-color: #2196F3;
+  --info-dark: #1E88E5;
 }
 
 * {

@@ -1,4 +1,6 @@
 import { createApp } from 'vue'
+import ElementPlus from 'element-plus'
+import 'element-plus/dist/index.css'
 import App from './App.vue'
 import router from './router'
 
@@ -15,5 +17,6 @@ app.config.globalProperties.$notify = (message, type = 'info') => {
   // 实现一个全局通知函数
 }
 
+app.use(ElementPlus)
 app.use(router)
 app.mount('#app') 

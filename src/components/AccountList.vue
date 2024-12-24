@@ -61,7 +61,11 @@
             <span class="label">用户名:</span>
             <div class="value-container">
               <span class="value">{{ account.username }}</span>
-              <button @click="copyToClipboard(account.username)" class="copy-btn" :data-tooltip="'复制用户名'">
+              <button class="copy-btn" 
+                @click="copyToClipboard(account.username)"
+                @touchstart="handleLongPress.start(account.username)"
+                @touchend="handleLongPress.end()"
+                :data-tooltip="'复制用户名'">
                 <i class="fas fa-copy"></i>
               </button>
             </div>
@@ -74,7 +78,11 @@
                 :data-tooltip="showPassword[account.id] ? '隐藏密码' : '显示密码'">
                 <i :class="showPassword[account.id] ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
               </button>
-              <button @click="copyToClipboard(account.password)" class="copy-btn" :data-tooltip="'复制密码'">
+              <button class="copy-btn"
+                @click="copyToClipboard(account.password)"
+                @touchstart="handleLongPress.start(account.password)"
+                @touchend="handleLongPress.end()"
+                :data-tooltip="'复制密码'">
                 <i class="fas fa-copy"></i>
               </button>
             </div>
@@ -110,6 +118,36 @@
               </span>
             </div>
           </div>
+          <div class="account-item" v-if="account.code">
+            <span class="label">验证码:</span>
+            <div class="value-container">
+              <span class="value">{{ account.code }}</span>
+              <button class="copy-btn" 
+                @click="copyToClipboard(account.code)"
+                @touchstart="handleLongPress.start(account.code)"
+                @touchend="handleLongPress.end()"
+                :data-tooltip="'复制验证码'">
+                <i class="fas fa-copy"></i>
+              </button>
+            </div>
+          </div>
+          <div class="account-item" v-if="account.platform === 'Steam' && account.shared_secret">
+            <span class="label">Steam令牌:</span>
+            <div class="value-container">
+              <span class="value steam-token">
+                <span v-if="!steamTokens[account.id]">加载中...</span>
+                <span v-else>{{ steamTokens[account.id] }}</span>
+                <span class="token-timer">{{ tokenRemainingTime }}s</span>
+              </span>
+              <button class="copy-btn"
+                @click="copyToClipboard(getSteamToken(account.shared_secret))"
+                @touchstart="handleLongPress.start(getSteamToken(account.shared_secret))"
+                @touchend="handleLongPress.end()"
+                :data-tooltip="'复制令牌'">
+                <i class="fas fa-copy"></i>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -138,8 +176,11 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { getAccounts, getNotifications, getAccountsByPlatform, getPlatforms, getVisitStats } from '../api'
+import { generateSteamToken } from '../api'
+import { ElMessage } from 'element-plus'
+import 'element-plus/es/components/message/style/css'
 
 const accounts = ref([])
 const notifications = ref([])
@@ -151,6 +192,10 @@ const stats = ref({
   totalVisits: 0,
   totalVisitors: 0
 })
+
+// Steam令牌刷新定时器
+const tokenRefreshTimer = ref(null)
+const tokenRemainingTime = ref(30)
 
 const formatDate = (dateString) => {
   if (!dateString) return '';
@@ -183,14 +228,66 @@ const selectPlatform = async (platform) => {
 }
 
 const copyToClipboard = async (text) => {
-  if (!text) return;
+  if (!text) {
+    ElMessage.warning('没有内容可复制')
+    return
+  }
+ 
   try {
-    await navigator.clipboard.writeText(text);
-    showNotification('复制成功');
+    // 创建临时输入框
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.style.position = 'fixed'
+    textarea.style.left = '-9999px'
+    document.body.appendChild(textarea)
+    
+    // 选择并复制
+    textarea.select()
+    textarea.setSelectionRange(0, textarea.value.length) // 兼容移动端
+    const success = document.execCommand('copy')
+    
+    // 清理
+    document.body.removeChild(textarea)
+    
+    if (success) {
+      ElMessage({
+        message: '复制成功',
+        type: 'success',
+        duration: 2000
+      })
+    } else {
+      throw new Error('复制失败')
+    }
   } catch (err) {
-    alert('复制失败，请手动复制');
+    console.error('复制失败:', err)
+    ElMessage({
+      message: '复制失败，请手动复制',
+      type: 'error',
+      duration: 3000
+    })
   }
 }
+
+// 添加长按复制支持
+const handleLongPress = (() => {
+  let timer = null
+  let isLongPress = false
+
+  const start = (text) => {
+    isLongPress = false
+    timer = setTimeout(() => {
+      isLongPress = true
+      copyToClipboard(text)
+    }, 800) // 长按 800ms 触发
+  }
+
+  const end = () => {
+    clearTimeout(timer)
+    return isLongPress
+  }
+
+  return { start, end }
+})()
 
 const showNotification = (message) => {
   const notification = document.createElement('div');
@@ -231,6 +328,53 @@ const getNotificationIcon = (type) => {
   return icons[type] || icons.info;
 }
 
+// 获取Steam令牌
+const getSteamToken = async (sharedSecret) => {
+  try {
+    const token = await generateSteamToken(sharedSecret)
+    if (!token) {
+      ElMessage({
+        message: 'Steam令牌生成失败',
+        type: 'warning',
+        duration: 3000
+      })
+    }
+    return token || '获取失败'
+  } catch (error) {
+    console.error('获取Steam令牌失败:', error)
+    return '获取失败'
+  }
+}
+
+// 更新令牌
+const updateTokens = async () => {
+  for (const account of accounts.value) {
+    if (account.platform === 'Steam' && account.shared_secret) {
+      steamTokens.value[account.id] = await getSteamToken(account.shared_secret)
+    }
+  }
+}
+
+// 更新令牌剩余时间
+const updateTokenTime = () => {
+  tokenRemainingTime.value = getTokenRemainingTime()
+}
+
+// 添加状态存储
+const steamTokens = ref({})
+
+// 启动令牌刷新定时器
+const startTokenRefresh = () => {
+  updateTokenTime()
+  updateTokens()
+  tokenRefreshTimer.value = setInterval(() => {
+    updateTokenTime()
+    if (tokenRemainingTime.value === 30) {
+      updateTokens()
+    }
+  }, 1000)
+}
+
 onMounted(async () => {
   try {
     const [accountsRes, notificationsRes, platformsRes, statsRes] = await Promise.all([
@@ -242,156 +386,252 @@ onMounted(async () => {
     accounts.value = accountsRes.data
     notifications.value = notificationsRes.data
     platforms.value = platformsRes.data
-    console.log('获取到的统计数据:', statsRes.data)
     stats.value = statsRes.data
-    console.log('更新后的统计数据:', stats.value)
+    startTokenRefresh()
+    ElMessage({
+      message: '数据加载成功',
+      type: 'success',
+      duration: 2000
+    })
   } catch (error) {
-    console.error('获取数据失败:', error)
+    console.error('加载数据失败:', error)
+    ElMessage({
+      message: '加载数据失败: ' + error.message,
+      type: 'error',
+      duration: 3000
+    })
+  }
+})
+
+onUnmounted(() => {
+  if (tokenRefreshTimer.value) {
+    clearInterval(tokenRefreshTimer.value)
   }
 })
 </script>
 
 <style scoped>
-/* 容器样式 */
 .account-container {
-  padding: 20px;
-  max-width: 1200px;
-  margin: 0 auto;
+  min-height: 100vh;
+  background: var(--bg-primary);
 }
 
 /* 头部样式 */
 .header {
-  background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
-  padding: 30px;
-  border-radius: var(--border-radius);
-  margin-bottom: 30px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+  background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%);
+  padding: 80px 20px;
   color: white;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
 }
 
-.header-content .title {
-  margin: 0;
-  font-size: 32px;
+.header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: 
+    radial-gradient(circle at 20% 150%, rgba(255,255,255,0.1) 0%, transparent 50%),
+    radial-gradient(circle at 80% -50%, rgba(255,255,255,0.15) 0%, transparent 50%);
+  pointer-events: none;
+}
+
+.header-content {
+  position: relative;
+  z-index: 1;
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.title {
+  font-size: 3.5rem;
+  margin-bottom: 15px;
   font-weight: 700;
+  text-shadow: 0 2px 15px rgba(0,0,0,0.2);
+  letter-spacing: 1px;
+  background: linear-gradient(to right, #ffffff, #e3f2fd);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: titleFadeIn 1s ease-out;
 }
 
 .subtitle {
-  margin: 10px 0 0;
-  opacity: 0.9;
-  font-size: 16px;
+  font-size: 1.4rem;
+  opacity: 0.95;
+  margin-bottom: 40px;
+  font-weight: 400;
+  text-shadow: 0 2px 10px rgba(0,0,0,0.1);
+  max-width: 600px;
+  line-height: 1.4;
+  animation: subtitleSlideUp 1s ease-out 0.3s both;
 }
 
-.admin-btn {
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
-  text-decoration: none;
-  padding: 10px 20px;
-  border-radius: 8px;
-  font-size: 14px;
+/* 访问统计样式 */
+.visit-stats {
+  display: flex;
+  justify-content: center;
+  gap: 30px;
+  margin-top: 40px;
+  animation: statsSlideUp 1s ease-out 0.6s both;
+}
+
+.stat-item {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 15px 30px;
+  border-radius: 30px;
+  backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  gap: 12px;
   transition: all 0.3s ease;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.stat-item:hover {
+  transform: translateY(-3px);
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.stat-item i {
+  font-size: 1.4rem;
+  opacity: 0.9;
+}
+
+/* 管理员按钮样式 */
+.admin-btn {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  padding: 8px 16px;
+  border-radius: 20px;
+  text-decoration: none;
   display: flex;
   align-items: center;
   gap: 8px;
+  transition: all 0.3s ease;
+  backdrop-filter: blur(5px);
 }
 
 .admin-btn:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.2);
   transform: translateY(-2px);
 }
 
-/* 搜索框样式 */
+/* 搜索区域样式 */
 .search-box {
-  margin-bottom: 30px;
+  max-width: 1200px;
+  margin: 20px auto;
+  padding: 0 20px;
 }
 
 .search-wrapper {
+  background: white;
+  border-radius: var(--border-radius);
+  padding: 20px;
+  box-shadow: var(--box-shadow);
   position: relative;
-  margin-bottom: 15px;
 }
 
-.search-icon {
-  position: absolute;
-  left: 15px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: #666;
-}
-
-.search-input {
+.search-wrapper input {
   width: 100%;
-  padding: 15px 15px 15px 45px;
-  border: 2px solid #eee;
-  border-radius: 12px;
+  padding: 12px 20px 12px 48px;
+  border: 2px solid var(--border-color);
+  border-radius: 10px;
   font-size: 16px;
   transition: all 0.3s ease;
 }
 
-.search-input:focus {
+.search-wrapper input:focus {
   border-color: var(--primary-color);
-  box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.2);
   outline: none;
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.1);
+}
+
+.search-wrapper .search-icon {
+  position: absolute;
+  left: 35px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-secondary);
+  font-size: 18px;
 }
 
 /* 平台标签样式 */
 .platform-tags {
   display: flex;
-  gap: 10px;
   flex-wrap: wrap;
-  margin-top: 15px;
+  gap: 12px;
+  margin-top: 20px;
 }
 
 .platform-tag {
-  background: var(--bg-light);
+  background: white;
   padding: 8px 16px;
   border-radius: 20px;
-  font-size: 14px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all 0.3s ease;
   display: flex;
   align-items: center;
   gap: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: var(--box-shadow);
+}
+
+.platform-tag i {
+  font-size: 16px;
+  color: var(--primary-color);
 }
 
 .platform-tag:hover {
-  background: var(--primary-color);
-  color: white;
   transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 .platform-tag.active {
   background: var(--primary-color);
   color: white;
-  box-shadow: 0 2px 8px rgba(52, 152, 219, 0.3);
 }
 
-/* 账号卡片样式 */
+.platform-tag.active i {
+  color: white;
+}
+
+/* 账号网格样式 */
 .account-grid {
+  max-width: 1200px;
+  margin: 0 auto 40px;
+  padding: 0 20px;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 25px;
-  margin-bottom: 40px;
+  gap: 24px;
 }
 
 .account-card {
   background: white;
-  border-radius: 12px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  border-radius: var(--border-radius);
   overflow: hidden;
-  transition: transform 0.3s ease;
+  box-shadow: var(--box-shadow);
+  transition: all 0.3s ease;
 }
 
 .account-card:hover {
-  transform: translateY(-5px);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
 }
 
 .account-header {
   background: var(--primary-color);
   color: white;
-  padding: 15px;
-  font-weight: bold;
+  padding: 16px 20px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -400,7 +640,16 @@ onMounted(async () => {
 .platform-info {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+}
+
+.platform-info i {
+  font-size: 20px;
+}
+
+.account-id {
+  opacity: 0.8;
+  font-size: 14px;
 }
 
 .account-content {
@@ -408,10 +657,15 @@ onMounted(async () => {
 }
 
 .account-item {
-  margin-bottom: 15px;
+  margin-bottom: 16px;
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.account-item .label {
+  color: var(--text-secondary);
+  font-size: 14px;
 }
 
 .value-container {
@@ -420,36 +674,126 @@ onMounted(async () => {
   gap: 8px;
 }
 
-.label {
-  color: var(--text-secondary);
+.value {
+  flex: 1;
+  color: var(--text-primary);
   font-weight: 500;
 }
 
-.value {
-  color: var(--text-primary);
-  font-weight: bold;
-  font-family: monospace;
-  letter-spacing: 1px;
-}
-
-/* 按钮样式 */
 .copy-btn, .toggle-btn {
-  padding: 6px 10px;
+  background: none;
   border: none;
-  border-radius: 6px;
+  padding: 4px;
   cursor: pointer;
-  font-size: 14px;
-  background: var(--primary-color);
-  color: white;
-  transition: all 0.3s ease;
+  color: var(--text-secondary);
+  transition: all 0.2s ease;
+  position: relative;
 }
 
 .copy-btn:hover, .toggle-btn:hover {
-  background: var(--primary-dark);
-  transform: translateY(-2px);
+  color: var(--primary-color);
 }
 
-/* 复制提示样式 */
+/* 状态样式 */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.status-normal {
+  background: rgba(76, 175, 80, 0.1);
+}
+
+.status-warning {
+  background: rgba(255, 152, 0, 0.1);
+}
+
+.status-error {
+  background: rgba(244, 67, 54, 0.1);
+}
+
+/* 标签样式 */
+.tags-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tag {
+  background: rgba(var(--primary-rgb), 0.1);
+  color: var(--primary-color);
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tag i {
+  font-size: 12px;
+}
+
+/* 时间项样式 */
+.time-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.time-item i {
+  font-size: 14px;
+}
+
+/* 提示区域样式 */
+.footer-tips {
+  max-width: 1200px;
+  margin: 0 auto 40px;
+  padding: 20px;
+  background: white;
+  border-radius: var(--border-radius);
+  box-shadow: var(--box-shadow);
+}
+
+.tips-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  color: var(--primary-color);
+}
+
+.tips-header h3 {
+  font-size: 18px;
+  margin: 0;
+}
+
+.footer-tips ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.footer-tips li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  color: var(--text-secondary);
+}
+
+.footer-tips li i {
+  color: var(--primary-color);
+}
+
+/* 复制提示动画 */
 .copy-notification {
   position: fixed;
   bottom: 20px;
@@ -458,7 +802,7 @@ onMounted(async () => {
   background: rgba(0, 0, 0, 0.8);
   color: white;
   padding: 10px 20px;
-  border-radius: 8px;
+  border-radius: 20px;
   z-index: 1000;
   animation: fadeInOut 2s ease;
 }
@@ -470,24 +814,41 @@ onMounted(async () => {
   100% { opacity: 0; transform: translate(-50%, -20px); }
 }
 
-/* 时间显示样式 */
-.time-item {
-  color: var(--text-secondary);
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 15px;
-  padding-top: 15px;
-  border-top: 1px solid var(--border-color);
-}
-
 /* 响应式设计 */
 @media (max-width: 768px) {
   .header {
+    padding: 60px 20px;
+  }
+
+  .title {
+    font-size: 2.5rem;
+  }
+
+  .subtitle {
+    font-size: 1.2rem;
+    padding: 0 20px;
+  }
+
+  .visit-stats {
     flex-direction: column;
-    text-align: center;
-    gap: 20px;
+    align-items: center;
+    gap: 15px;
+    margin-top: 30px;
+  }
+
+  .stat-item {
+    width: 100%;
+    max-width: 300px;
+    justify-content: center;
+    padding: 12px 25px;
+  }
+
+  .admin-btn {
+    position: relative;
+    top: auto;
+    right: auto;
+    margin-top: 20px;
+    display: inline-flex;
   }
 
   .platform-tags {
@@ -497,41 +858,32 @@ onMounted(async () => {
   .account-grid {
     grid-template-columns: 1fr;
   }
-
-  .account-item {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 10px;
-  }
-
-  .value-container {
-    width: 100%;
-    justify-content: space-between;
-  }
 }
 
-/* 通知消息样式 */
+/* 通知区域样式 */
 .notifications {
-  margin-bottom: 30px;
-  animation: slideDown 0.5s ease;
+  max-width: 1200px;
+  margin: -30px auto 20px;
+  padding: 0 20px;
+  position: relative;
+  z-index: 2;
 }
 
 .notification-item {
   background: white;
   border-radius: var(--border-radius);
-  padding: 15px 20px;
-  margin-bottom: 10px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  border-left: 4px solid var(--primary-color);
-  transition: transform 0.3s ease;
-}
-
-.notification-item:hover {
-  transform: translateX(5px);
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  box-shadow: var(--box-shadow);
+  border-left: 4px solid transparent;
+  animation: slideIn 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .notification-item.info {
-  border-left-color: var(--primary-color);
+  border-left-color: var(--info-color);
 }
 
 .notification-item.warning {
@@ -542,39 +894,79 @@ onMounted(async () => {
   border-left-color: var(--danger-color);
 }
 
+.notification-item.success {
+  border-left-color: var(--success-color);
+}
+
 .notification-title {
   display: flex;
   align-items: center;
   gap: 10px;
   font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 8px;
+  font-size: 16px;
 }
 
 .notification-title i {
   font-size: 18px;
 }
 
-.notification-item.info i {
-  color: var(--primary-color);
+.notification-item.info .notification-title {
+  color: var(--info-color);
 }
 
-.notification-item.warning i {
+.notification-item.warning .notification-title {
   color: var(--warning-color);
 }
 
-.notification-item.danger i {
+.notification-item.danger .notification-title {
   color: var(--danger-color);
+}
+
+.notification-item.success .notification-title {
+  color: var(--success-color);
 }
 
 .notification-content {
   color: var(--text-secondary);
-  font-size: 14px;
   line-height: 1.5;
-  margin-left: 28px;
+  font-size: 14px;
+  padding-left: 28px;
 }
 
-@keyframes slideDown {
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 在响应式设计部分添加 */
+@media (max-width: 768px) {
+  .notifications {
+    margin-top: -20px;
+    padding: 0 15px;
+  }
+
+  .notification-item {
+    padding: 12px 15px;
+  }
+
+  .notification-title {
+    font-size: 15px;
+  }
+
+  .notification-content {
+    font-size: 13px;
+    padding-left: 24px;
+  }
+}
+
+/* 添加动画关键帧 */
+@keyframes titleFadeIn {
   from {
     opacity: 0;
     transform: translateY(-20px);
@@ -585,109 +977,7 @@ onMounted(async () => {
   }
 }
 
-/* 移动端适配 */
-@media (max-width: 768px) {
-  .notifications {
-    margin: 0 -10px 20px -10px;
-  }
-
-  .notification-item {
-    border-radius: 0;
-    margin-bottom: 8px;
-  }
-
-  .notification-content {
-    margin-left: 0;
-    margin-top: 8px;
-  }
-}
-
-/* Footer 提示样式 */
-.footer-tips {
-  background: var(--bg-light);
-  padding: 25px;
-  border-radius: var(--border-radius);
-  margin-top: 40px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
-  animation: slideUp 0.5s ease;
-}
-
-.tips-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 15px;
-  color: var(--primary-color);
-}
-
-.tips-header h3 {
-  margin: 0;
-  font-size: 18px;
-  color: var(--text-primary);
-}
-
-.tips-header i {
-  font-size: 24px;
-}
-
-.footer-tips ul {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
-.footer-tips li {
-  margin: 12px 0;
-  color: var(--text-secondary);
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 14px;
-  padding: 8px 0;
-  border-bottom: 1px dashed var(--border-color);
-  transition: all 0.3s ease;
-}
-
-.footer-tips li:last-child {
-  border-bottom: none;
-}
-
-.footer-tips li:hover {
-  color: var(--text-primary);
-  transform: translateX(5px);
-}
-
-.footer-tips li i {
-  color: var(--primary-color);
-  font-size: 16px;
-}
-
-.footer-tips li:nth-child(1) i {
-  color: var(--warning-color);
-}
-
-.footer-tips li:nth-child(2) i {
-  color: var(--danger-color);
-}
-
-.footer-tips li:nth-child(3) i {
-  color: var(--success-color);
-}
-
-/* 移动端适配 */
-@media (max-width: 768px) {
-  .footer-tips {
-    margin: 20px -10px -20px -10px;
-    border-radius: 0;
-  }
-
-  .footer-tips li {
-    padding: 12px 0;
-  }
-}
-
-/* 添加动画 */
-@keyframes slideUp {
+@keyframes subtitleSlideUp {
   from {
     opacity: 0;
     transform: translateY(20px);
@@ -698,32 +988,64 @@ onMounted(async () => {
   }
 }
 
-.visit-stats {
-  display: flex;
-  gap: 20px;
-  margin-top: 15px;
+@keyframes statsSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
-.stat-item {
+/* 添加深色模式支持 */
+@media (prefers-color-scheme: dark) {
+  .title {
+    background: linear-gradient(to right, #ffffff, #bbdefb);
+    -webkit-background-clip: text;
+  }
+}
+
+.steam-token {
+  font-family: monospace;
+  font-size: 1.2em;
+  letter-spacing: 2px;
+  background: rgba(var(--primary-rgb), 0.1);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.steam-token-tips {
+  color: var(--text-secondary);
+  font-size: 0.9em;
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(255, 255, 255, 0.2);
-  padding: 8px 15px;
-  border-radius: 20px;
-  font-size: 14px;
-  color: white;
 }
 
-.stat-item i {
-  font-size: 16px;
-}
-
+/* 移动端优化 */
 @media (max-width: 768px) {
-  .visit-stats {
-    flex-direction: column;
-    gap: 10px;
-    align-items: center;
+  .copy-btn {
+    min-width: 36px;
+    min-height: 36px;
+    padding: 8px;
+  }
+  
+  .value-container {
+    gap: 8px;
+  }
+  
+  /* 禁用长按选择文本 */
+  .value-container {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  
+  /* 添加触摸反馈 */
+  .copy-btn:active {
+    transform: scale(0.95);
+    opacity: 0.8;
   }
 }
 </style> 

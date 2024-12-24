@@ -157,4 +157,68 @@ export const getVisitStats = async () => {
     console.error('获取访问统计失败:', error)
     throw error
   }
+}
+
+export const updateAccountsStatus = async (ids, status) => {
+  try {
+    const response = await api.put('/accounts/status/batch', { ids, status })
+    return response
+  } catch (error) {
+    console.error('批量更新状态失败:', error)
+    throw error
+  }
+}
+
+export const deleteAccounts = async (ids) => {
+  try {
+    const response = await api.delete('/accounts/batch', { data: { ids } })
+    return response
+  } catch (error) {
+    console.error('批量删除失败:', error)
+    throw error
+  }
+}
+
+// 获取任务列表
+export const getTasks = async () => {
+  try {
+    const response = await api.get('/tasks')
+    return response
+  } catch (error) {
+    console.error('获取任务列表失败:', error)
+    throw error
+  }
+}
+
+// 手动触发任务
+export const runTask = async (taskName) => {
+  try {
+    const response = await api.post(`/tasks/${taskName}`)
+    return response
+  } catch (error) {
+    console.error('执行任务失败:', error)
+    throw error
+  }
+}
+
+// 添加批量导入账号的方法
+export const addAccounts = async (accounts) => {
+  try {
+    const response = await api.post('/accounts/batch', accounts)
+    return response
+  } catch (error) {
+    console.error('批量导入账号失败:', error)
+    throw error
+  }
+}
+
+// 添加Steam令牌生成API
+export const generateSteamToken = async (sharedSecret) => {
+  try {
+    const response = await api.post('/steam/token', { shared_secret: sharedSecret })
+    return response.data.token
+  } catch (error) {
+    console.error('获取Steam令牌失败:', error)
+    throw error
+  }
 } 
