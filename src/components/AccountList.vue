@@ -309,6 +309,9 @@ const getPlatformIcon = (platform) => {
     'Steam': 'fab fa-steam',
     'Spotify': 'fab fa-spotify',
     'Disney+': 'fab fa-disney-plus',
+    'SteamGuard': 'fab fa-steam',
+    'apple': 'fab fa-apple',
+    'Shadowrocket': 'fas fa-rocket',
     'default': 'fas fa-tv'
   };
   return iconMap[platform] || iconMap.default;

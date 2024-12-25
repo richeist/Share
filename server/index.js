@@ -1,12 +1,14 @@
 import express from 'express'
 import mysql from 'mysql2/promise'
 import cors from 'cors'
+import cookieParser from 'cookie-parser'
 import config from '../config/index.js'
 import fs from 'fs'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
 import { startScheduler, scheduledTasks } from './tasks/scheduler.js'
 import { generateSteamGuardCode } from './utils/steamToken.js'
+import { v4 as uuidv4 } from 'uuid'
 
 const app = express()
 
@@ -16,6 +18,7 @@ const __dirname = dirname(__filename)
 // 中间件配置
 app.use(cors(config.security.cors))
 app.use(express.json())
+app.use(cookieParser())
 
 // 数据库配置
 const pool = mysql.createPool(config.db)
@@ -385,30 +388,9 @@ if (!fs.existsSync(STATS_FILE)) {
   const initialStats = {
     totalVisits: 0,
     totalVisitors: 0,
-    allVisitors: []
+    visitorIds: []
   }
   fs.writeFileSync(STATS_FILE, JSON.stringify(initialStats, null, 2))
-} else {
-  // 读取并转换现有文件到新格式
-  try {
-    const data = fs.readFileSync(STATS_FILE, 'utf8')
-    const oldStats = JSON.parse(data)
-    if (oldStats.visitors && !oldStats.allVisitors) {
-      const allIPs = new Set()
-      Object.values(oldStats.visitors).forEach(dayVisitors => {
-        dayVisitors.forEach(ip => allIPs.add(ip))
-      })
-      
-      const newStats = {
-        totalVisits: oldStats.totalVisits || 0,
-        totalVisitors: allIPs.size,
-        allVisitors: Array.from(allIPs)
-      }
-      fs.writeFileSync(STATS_FILE, JSON.stringify(newStats, null, 2))
-    }
-  } catch (error) {
-    console.error('转换统计文件失败:', error)
-  }
 }
 
 // 读取统计数据
@@ -419,14 +401,14 @@ const readStats = () => {
     return {
       totalVisits: stats.totalVisits || 0,
       totalVisitors: stats.totalVisitors || 0,
-      allVisitors: stats.allVisitors || []
+      visitorIds: stats.visitorIds || []
     }
   } catch (error) {
     console.error('读取统计数据失败:', error)
     return {
       totalVisits: 0,
       totalVisitors: 0,
-      allVisitors: []
+      visitorIds: []
     }
   }
 }
@@ -437,7 +419,7 @@ const saveStats = (stats) => {
     const statsToSave = {
       totalVisits: stats.totalVisits,
       totalVisitors: stats.totalVisitors,
-      allVisitors: stats.allVisitors
+      visitorIds: stats.visitorIds
     }
     fs.writeFileSync(STATS_FILE, JSON.stringify(statsToSave, null, 2))
   } catch (error) {
@@ -448,8 +430,17 @@ const saveStats = (stats) => {
 // 访问统计路由
 app.get('/api/stats', (req, res) => {
   try {
-    const clientIP = req.ip
-    console.log('访问统计 - 客户端IP:', clientIP)
+    // 获取或设置访客ID
+    let visitorId = req.cookies.visitorId
+    if (!visitorId) {
+      visitorId = uuidv4()
+      res.cookie('visitorId', visitorId, {
+        maxAge: 365 * 24 * 60 * 60 * 1000, // 一年有效期
+        httpOnly: true,
+        sameSite: 'Lax',
+        secure: process.env.NODE_ENV === 'production'
+      })
+    }
     
     const stats = readStats()
     console.log('访问统计 - 当前统计数据:', stats)
@@ -457,10 +448,10 @@ app.get('/api/stats', (req, res) => {
     // 增加总访问量
     stats.totalVisits++
     
-    // 更新总访客数（如果是新访客）
-    if (!stats.allVisitors.includes(clientIP)) {
-      stats.allVisitors.push(clientIP)
-      stats.totalVisitors = stats.allVisitors.length
+    // 使用访客ID更新总访客数
+    if (!stats.visitorIds.includes(visitorId)) {
+      stats.visitorIds.push(visitorId)
+      stats.totalVisitors = stats.visitorIds.length
       console.log('访问统计 - 新访客已添加')
     }
     
