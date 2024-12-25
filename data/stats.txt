@@ -1,8 +1,9 @@
 {
-  "totalVisits": 5,
-  "totalVisitors": 2,
+  "totalVisits": 72,
+  "totalVisitors": 3,
   "visitorIds": [
     "1f930a87-48fb-416f-a6b6-8a26be77ec40",
-    "1a67f56e-3b8b-4345-9a32-14fc33498194"
+    "1a67f56e-3b8b-4345-9a32-14fc33498194",
+    "d73cf3a4-8e74-48ba-a898-ac72b7e2317b"
   ]
 }

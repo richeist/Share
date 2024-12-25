@@ -41,6 +41,35 @@ async function testConnection() {
   }
 }
 
+// 在现有的中间件配置之后添加
+app.use((req, res, next) => {
+  const ip = req.ip || req.connection.remoteAddress;
+  const date = new Date();
+  const timestamp = date.toLocaleString('zh-CN', { 
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+  
+  const logEntry = `${timestamp} - ${ip}\n`;
+  
+  fs.appendFile(
+    join(__dirname, '../data/ip_logs.txt'),
+    logEntry,
+    (err) => {
+      if (err) {
+        console.error('记录IP失败:', err);
+      }
+    }
+  );
+  next();
+});
+
 // API 路由
 // 获取所有账号
 app.get('/api/accounts', async (req, res) => {
@@ -70,7 +99,7 @@ app.post('/api/accounts', async (req, res) => {
   try {
     // 检查必填字段
     if (!username || !password || !platform) {
-      return res.status(400).json({ error: '用户名、密码和平台为必填项' })
+      return res.status(400).json({ error: '用户名、密码和平���为必填项' })
     }
 
     const [result] = await pool.query(
@@ -503,7 +532,7 @@ app.delete('/api/accounts/batch', async (req, res) => {
   }
 })
 
-// 在启动服务器之前启动定时任务
+// 在��动服务器之前启动定时任务
 startScheduler()
 
 // 添加手动触发任务的路由
@@ -618,7 +647,7 @@ app.post('/api/steam/token', async (req, res) => {
     console.error('生成Steam令牌失败:', error)
     res.status(500).json({ 
       error: error.message,
-      details: '生成Steam令牌失败'
+      details: '生成Steam令牌失���'
     })
   }
 })

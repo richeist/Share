@@ -15,10 +15,7 @@
           </div>
         </div>
       </div>
-      <router-link to="/login" class="admin-btn">
-        <i class="fas fa-user-shield"></i>
-        管理员登录
-      </router-link>
+
     </div>
 
     <div v-if="notifications.length" class="notifications">
@@ -31,6 +28,26 @@
         <div class="notification-content">{{ notification.content }}</div>
       </div>
     </div>
+
+    <el-card class="rules-card">
+      <template #header>
+        <div class="rules-header">
+          <h2>{{ accountRules.title }}</h2>
+        </div>
+      </template>
+
+      <div class="rules-content">
+        <div v-for="(section, index) in accountRules.rules" :key="index" class="rule-section">
+          <h3>{{ section.type }}</h3>
+          <ul>
+            <li v-for="(item, idx) in section.items" :key="idx">
+              {{ item }}
+            </li>
+          </ul>
+        </div>
+      </div>
+    </el-card>
+    
     <div class="search-box">
 
 
@@ -46,6 +63,8 @@
         </span>
       </div>
     </div>
+
+
 
     <div class="account-grid">
       <div v-for="account in filteredAccounts" :key="account.id" class="account-card">
@@ -132,10 +151,8 @@
                 {{ steamTokens[account.id] || '加载中...' }}
                 <span class="token-timer">{{ tokenRemainingTime }}s</span>
               </span>
-              <button class="copy-btn"
-                @click="copyToClipboard(steamTokens[account.id] || '')"
-                @touchstart="handleLongPress.start(steamTokens[account.id] || '')"
-                @touchend="handleLongPress.end()"
+              <button class="copy-btn" @click="copyToClipboard(steamTokens[account.id] || '')"
+                @touchstart="handleLongPress.start(steamTokens[account.id] || '')" @touchend="handleLongPress.end()"
                 :data-tooltip="'复制令牌'">
                 <i class="fas fa-copy"></i>
               </button>
@@ -166,6 +183,9 @@
         </li>
       </ul>
     </div>
+
+    <RulesButton @click="showRules = true" />
+    <RulesDialog v-model:visible="showRules" />
   </div>
 </template>
 
@@ -175,6 +195,9 @@ import { getAccounts, getNotifications, getAccountsByPlatform, getPlatforms, get
 import { SteamGuard, getTokenRemainingTime } from '../utils/steamToken.js'
 import { ElMessage } from 'element-plus'
 import 'element-plus/es/components/message/style/css'
+
+import RulesDialog from '../components/common/RulesDialog.vue'
+import RulesButton from '../components/common/RulesButton.vue'
 
 const accounts = ref([])
 const notifications = ref([])
@@ -191,6 +214,50 @@ const stats = ref({
 const tokenRefreshTimer = ref(null)
 const tokenRemainingTime = ref(30)
 const steamTokens = ref({})
+
+const accountRules = {
+  title: '账号使用规则',
+  rules: [
+    {
+      type: '账号状态说明',
+      items: [
+        '离线：账号已掉线，需要重新登录',
+        '在线：账号目前可以正常使用',
+        '异常：账号出现问题，需要处理',
+        '锁定：账号暂时被锁定，无法使用',
+        '弃用：账号已不再使用'
+      ]
+    },
+   
+    {
+      type: '令牌使用说明',
+      items: [
+        '令牌有效期为30秒',
+        '使用令牌时注意时效性',
+        '如遇令牌失效请重新获取',
+        '不要保存或分享令牌信息'
+      ]
+    },
+  
+    {
+      type: '使用注意事项',
+      items: [
+
+
+
+        '不要在同一时间多人使用,使用完毕后请及时退出登录',
+
+        '请勿频繁切换账号，以免触发平台安全机制',
+       
+        '请勿在账号中存储个人信息,不要修改号的任何设置',
+
+        '禁止将账号分享给他人,违规使用将被加入黑名单',
+
+        '如遇账号异常，遇到问题及时反馈,请联系管理员'
+      ]
+    },
+  ]
+}
 
 const formatDate = (dateString) => {
   if (!dateString) return '';
@@ -384,6 +451,9 @@ const startTokenRefresh = () => {
     }
   }, 1000)
 }
+
+// 添加规则显示状态
+const showRules = ref(false)
 
 onMounted(async () => {
   try {
@@ -762,7 +832,7 @@ onUnmounted(() => {
   font-size: 14px;
 }
 
-/* 提示区域样式 */
+/* ���示区域样式 */
 .footer-tips {
   max-width: 1200px;
   margin: 0 auto 40px;
@@ -1057,5 +1127,50 @@ onUnmounted(() => {
     transform: scale(0.95);
     opacity: 0.8;
   }
+}
+
+.rules-card {
+  margin-bottom: 20px;
+}
+
+.rules-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.rules-content {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.rule-section {
+  padding: 15px;
+  border-radius: 8px;
+  background-color: #f8f9fa;
+}
+
+.rule-section h3 {
+  color: #409EFF;
+  margin-bottom: 10px;
+}
+
+.rule-section ul {
+  list-style: none;
+  padding-left: 0;
+}
+
+.rule-section li {
+  margin: 8px 0;
+  padding-left: 20px;
+  position: relative;
+}
+
+.rule-section li::before {
+  content: "•";
+  color: #409EFF;
+  position: absolute;
+  left: 0;
 }
 </style> 
